@@ -42,4 +42,22 @@ const walk = issuesFor([
 ]);
 assert.equal(walk.has("v"), false);
 
+const recorded = globalThis.RIV.fromTimeRecord(globalThis.RIV.pickTime({
+  sessionTimeID: "t1",
+  times: [{
+    sessionTimeID: "t1",
+    date: "2026-11-30",
+    startTime: "16:30",
+    endTime: "17:30",
+    startTimeMin: 990,
+    endTimeMin: 1050,
+    location: "Caesars Forum",
+  }],
+}));
+assert.equal(recorded.date, "Monday, Nov 30");
+assert.equal(recorded.start, 16 * 60 + 30);
+assert.equal(recorded.end, 17 * 60 + 30);
+assert.equal(recorded.time, "4:30 PM - 5:30 PM");
+assert.equal(recorded.venue, "Caesars Forum");
+
 console.log("model tests passed");

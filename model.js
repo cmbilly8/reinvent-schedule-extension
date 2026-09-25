@@ -11,12 +11,66 @@ globalThis.RIV = (() => {
     "Friday, Dec 4",
   ];
 
+  const DATES = {
+    "2026-11-30": "Monday, Nov 30",
+    "2026-12-01": "Tuesday, Dec 1",
+    "2026-12-02": "Wednesday, Dec 2",
+    "2026-12-03": "Thursday, Dec 3",
+    "2026-12-04": "Friday, Dec 4",
+  };
+
+  function minutesFromClock(value) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    const text = String(value || "").trim();
+    const ampm = text.match(/^(\d{1,2}):(\d{2})\s*([ap])\.?m\.?$/i);
+    if (ampm) {
+      let hour = Number(ampm[1]) % 12;
+      if (ampm[3].toLowerCase() === "p") hour += 12;
+      return hour * 60 + Number(ampm[2]);
+    }
+    const hour24 = text.match(/^(\d{1,2}):(\d{2})$/);
+    if (!hour24) return null;
+    const hour = Number(hour24[1]);
+    if (hour > 23) return null;
+    return hour * 60 + Number(hour24[2]);
+  }
+
   function toMinutes(clock) {
-    const match = String(clock).trim().match(/^(\d{1,2}):(\d{2})\s*([AP]M)$/i);
-    if (!match) return null;
-    let hour = Number(match[1]) % 12;
-    if (match[3].toUpperCase() === "PM") hour += 12;
-    return hour * 60 + Number(match[2]);
+    return minutesFromClock(String(clock).replace(/\./g, "").toUpperCase());
+  }
+
+  function fromTimeRecord(record) {
+    if (!record) return { date: "", time: "", start: null, end: null, venue: "" };
+    const start = minutesFromClock(record.startTimeMin)
+      ?? minutesFromClock(record.startTimeFormatted)
+      ?? minutesFromClock(record.startTime);
+    const end = minutesFromClock(record.endTimeMin)
+      ?? minutesFromClock(record.endTimeFormatted)
+      ?? minutesFromClock(record.endTime);
+    let date = String(record.dateFormatted || "").replace(/\s+/g, " ").trim();
+    if (!DAYS.includes(date)) {
+      const built = `${record.dayName || ""}, ${record.shortMonth || ""} ${record.day || ""}`
+        .replace(/\s+/g, " ")
+        .trim();
+      if (DAYS.includes(built)) date = built;
+      else date = DATES[record.date] || "";
+    }
+    const venue = String(record.location || "").replace(/\s+/g, " ").trim();
+    return {
+      date,
+      time: start != null && end != null ? `${formatMinutes(start)} - ${formatMinutes(end)}` : "",
+      start,
+      end,
+      venue,
+    };
+  }
+
+  function pickTime(session) {
+    const times = Array.isArray(session && session.times)
+      ? session.times.filter((time) => time && !time.isHidden)
+      : [];
+    if (!times.length) return null;
+    return times.find((time) => time.sessionTimeID && time.sessionTimeID === session.sessionTimeID) || times[0];
   }
 
   function formatMinutes(minutes) {
@@ -130,6 +184,8 @@ globalThis.RIV = (() => {
     DAY_END,
     toMinutes,
     formatMinutes,
+    fromTimeRecord,
+    pickTime,
     readFields,
     layoutDay,
     issuesFor,

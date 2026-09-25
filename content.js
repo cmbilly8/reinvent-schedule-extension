@@ -6,13 +6,79 @@ const state = {
   day: RIV.DAYS[0],
 };
 
+const latest = new WeakMap();
+
+const DAY_CLASS = {
+  "day-monday-nov-30": "Monday, Nov 30",
+  "day-tuesday-dec-1": "Tuesday, Dec 1",
+  "day-wednesday-dec-2": "Wednesday, Dec 2",
+  "day-thursday-dec-3": "Thursday, Dec 3",
+  "day-friday-dec-4": "Friday, Dec 4",
+};
+
+const VENUE_CLASS = {
+  "venue-caesars-forum": "Caesars Forum",
+  "venue-caesars-palace": "Caesars Palace",
+  "venue-mgm-grand": "MGM Grand",
+  "venue-wynn-encore": "Wynn/Encore",
+  "venue-venetian": "Venetian",
+};
+
 function text(root, selector) {
   const node = root.querySelector(selector);
   return node ? node.textContent : "";
 }
 
+function classValue(card, map) {
+  for (const name of card.classList) {
+    if (map[name]) return map[name];
+  }
+  return "";
+}
+
+function fiberOf(node) {
+  const key = Object.keys(node).find((name) => name.startsWith("__reactFiber") || name.startsWith("__reactInternalInstance"));
+  return key ? node[key] : null;
+}
+
+function findSession(value, depth) {
+  if (!value || depth > 5) return null;
+  if (typeof value.sessionID === "string" && value.sessionID) return value;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findSession(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+  for (const key of ["session", "item", "items"]) {
+    if (!value[key]) continue;
+    const found = findSession(value[key], depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function sessionFromFiber(card) {
+  let fiber = fiberOf(card);
+  for (let step = 0; fiber && step < 30; step += 1, fiber = fiber.return) {
+    const props = fiber.memoizedProps || fiber.pendingProps;
+    const session = findSession(props, 0);
+    if (session) return session;
+  }
+  return null;
+}
+
+function venueFromAttributes(session) {
+  const values = session && session.attributevalues;
+  if (!Array.isArray(values)) return "";
+  const venue = values.find((value) => /venue/i.test(value.attribute || ""));
+  return venue ? String(venue.value || "").replace(/\s+/g, " ").trim() : "";
+}
+
 function readCard(card) {
-  return RIV.readFields({
+  const fields = RIV.readFields({
     id: card.getAttribute("data-session-id") || "",
     title: text(card, ".title-text"),
     date: text(card, ".session-date"),
@@ -21,6 +87,17 @@ function readCard(card) {
     level: text(card, ".badge.rf-level"),
     format: text(card, ".badge.rf-type"),
   });
+  const session = fields.start == null && card.dataset.rivChecked !== "1" ? sessionFromFiber(card) : null;
+  if (session) card.dataset.rivChecked = "1";
+  const recorded = RIV.fromTimeRecord(RIV.pickTime(session));
+  return {
+    ...fields,
+    date: fields.date || recorded.date || classValue(card, DAY_CLASS),
+    time: fields.time || recorded.time,
+    start: fields.start ?? recorded.start,
+    end: fields.end ?? recorded.end,
+    venue: fields.venue || venueFromAttributes(session) || recorded.venue || classValue(card, VENUE_CLASS),
+  };
 }
 
 function loadSessions() {
@@ -38,29 +115,40 @@ function saveSessions() {
 }
 
 function decorate(card) {
-  if (card.dataset.riv === "1") return;
+  if (card.dataset.rivTime === "1") {
+    paintCard(card);
+    return;
+  }
   const session = readCard(card);
   if (!session.title) return;
+  latest.set(card, session);
   card.dataset.riv = "1";
   card.dataset.rivId = session.id;
+  if (session.start != null) card.dataset.rivTime = "1";
 
-  const meta = document.createElement("div");
-  meta.className = "riv-meta";
+  let meta = card.querySelector(":scope > .riv-meta");
+  if (!meta) {
+    meta = document.createElement("div");
+    meta.className = "riv-meta";
+    meta.innerHTML = `
+      <div class="riv-meta-text">
+        <span class="riv-when"></span>
+        <span class="riv-venue"></span>
+      </div>
+      <button type="button" class="riv-add"></button>
+    `;
+    const title = card.querySelector(".catalog-result-title");
+    (title || card).insertAdjacentElement("afterend", meta);
+    meta.querySelector(".riv-add").addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const current = latest.get(card);
+      if (current) toggleSession(current);
+    });
+  }
   const when = [session.date, session.time].filter(Boolean).join(" · ");
-  meta.innerHTML = `
-    <div class="riv-meta-text">
-      <span class="riv-when">${when || "Time not listed"}</span>
-      <span class="riv-venue">${session.venue || "Venue not listed"}</span>
-    </div>
-    <button type="button" class="riv-add"></button>
-  `;
-  const title = card.querySelector(".catalog-result-title");
-  (title || card).insertAdjacentElement("afterend", meta);
-  meta.querySelector(".riv-add").addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    toggleSession(session);
-  });
+  meta.querySelector(".riv-when").textContent = when || "Time not listed";
+  meta.querySelector(".riv-venue").textContent = session.venue || "Venue not listed";
   paintCard(card);
 }
 
@@ -86,7 +174,7 @@ function toggleSession(session) {
 }
 
 function scan() {
-  document.querySelectorAll("li.catalog-result:not([data-riv='1'])").forEach(decorate);
+  document.querySelectorAll("li.catalog-result").forEach(decorate);
 }
 
 function ensurePanel() {
