@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "re:Invent schedule",
+  "version": "1.0.0",
+  "description": "Shows time and venue on re:Invent catalog cards, and builds a day view as you add sessions.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://registration.awsevents.com/flow/awsevents/reinvent2026/*"],
+      "js": ["model.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
